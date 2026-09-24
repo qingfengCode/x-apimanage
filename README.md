@@ -63,13 +63,26 @@ x-apimanage/
 
 ## 开发
 
-### 1. 安装依赖
+### 环境要求
+
+- Node.js 18+（推荐 20+）
+- Rust 工具链（通过 [rustup](https://rustup.rs/) 安装）
+- Windows 需额外安装 MSVC 生成工具链，详见下方「Windows 构建注意事项」
+
+### 1. 克隆仓库
+
+```bash
+git clone https://github.com/qingfengCode/x-apimanage.git
+cd x-apimanage
+```
+
+### 2. 安装依赖
 
 ```bash
 npm install
 ```
 
-### 2. 开发热重载
+### 3. 开发热重载
 
 ```bash
 npm run tauri dev
@@ -78,7 +91,7 @@ npm run tauri dev
 > Windows 下若链接报 `unresolved external symbol ___chkstk_ms`，请改用本项目自带的
 > **`build-msvc.cmd`** 脚本（见下方"Windows 构建注意事项"）。
 
-### 3. 打包发布
+### 4. 打包发布
 
 ```bash
 npm run tauri build
@@ -234,3 +247,7 @@ Content-Type: application/json
    - `xapimanage://documents/{id}` —— 每篇文档（Markdown，随文档列表动态注册）
    - `xapimanage://requests/{id}` —— 请求完整调试配置（URI 模板）
 5. 协议：MCP Streamable HTTP（无状态 JSON-RPC 2.0），支持 tools + resources 能力。
+
+## 许可证
+
+本项目基于 [MIT License](LICENSE) 开源，Copyright (c) 2026 qingfeng。
