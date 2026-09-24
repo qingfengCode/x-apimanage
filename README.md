@@ -2,6 +2,24 @@
 
 一个基于 **Tauri 2 + Vue 3** 的本地优先（local-first）API 调试平台，类似 Postman。
 
+## 界面预览
+
+请求调试：左侧集合树，中部请求构造（含 `{{变量}}` 实时解析），下部响应查看（Monaco 编辑器，JSON 自动美化）。
+
+![请求调试与响应查看](docs/screenshots/01-request-response.png)
+
+| 脚本与断言（QuickJS 沙箱） | Mock 服务 |
+|---|---|
+| ![脚本与断言](docs/screenshots/02-scripts.png) | ![Mock 服务](docs/screenshots/04-mock-server.png) |
+
+| 历史记录（按天分组，可一键重发） | 文档面板（Markdown 渲染） |
+|---|---|
+| ![历史记录](docs/screenshots/05-history.png) | ![文档面板](docs/screenshots/06-docs.png) |
+
+| 集合运行 Runner | MCP 服务（对外暴露给 AI 客户端） |
+|---|---|
+| ![集合运行 Runner](docs/screenshots/03-runner.png) | ![MCP 服务](docs/screenshots/07-mcp.png) |
+
 ## 功能（MVP）
 
 - ✅ HTTP 请求构造器：GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS
