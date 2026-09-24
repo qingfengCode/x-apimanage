@@ -1,4 +1,5 @@
-use std::time::Instant;
+use std::sync::{Arc, RwLock as StdRwLock};
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use reqwest::{redirect::Policy, Client, Method};
@@ -7,17 +8,57 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE};
 use crate::error::{AppError, AppResult};
 
 use super::model::{HttpRequest, HttpResponse, KeyValue, RequestBody, ResponseBody};
+use super::proxy;
 
-/// 构建共享的 reqwest 客户端（带 cookie store）
-pub fn build_client() -> Client {
-    Client::builder()
+const USER_AGENT: &str = "x-apimanage/0.1";
+
+/// 按当前代理配置构造客户端。
+/// `redirect` / `timeout` 为 None 时用 reqwest 默认（跟随重定向、超时由单请求覆盖）。
+fn build_client_inner(redirect: Option<Policy>, timeout: Option<Duration>) -> AppResult<Client> {
+    let mut builder = Client::builder()
         .cookie_store(true)
-        .user_agent("x-apimanage/0.1")
+        .user_agent(USER_AGENT)
         .gzip(true)
         .brotli(true)
-        .deflate(true)
+        .deflate(true);
+    if let Some(policy) = redirect {
+        builder = builder.redirect(policy);
+    }
+    if let Some(t) = timeout {
+        builder = builder.timeout(t);
+    }
+    proxy::apply(builder)?
         .build()
-        .expect("failed to build http client")
+        .map_err(|e| AppError::Http(e.to_string()))
+}
+
+/// 构建共享的 reqwest 客户端（带 cookie store，走当前代理配置）
+pub fn build_client() -> AppResult<Client> {
+    build_client_inner(None, None)
+}
+
+/// 共享 HTTP 客户端句柄。
+/// reqwest 客户端一旦构造就无法改代理，因此代理设置变更时整体重建，
+/// 让所有出站请求（发请求 / AI 对话 / MCP 工具）立即走新代理。
+#[derive(Clone)]
+pub struct HttpClients(Arc<StdRwLock<Client>>);
+
+impl HttpClients {
+    pub fn new(client: Client) -> Self {
+        Self(Arc::new(StdRwLock::new(client)))
+    }
+
+    /// 取出当前客户端（reqwest::Client 内部是 Arc，clone 很廉价且共享连接池）
+    pub fn get(&self) -> Client {
+        self.0.read().expect("http client poisoned").clone()
+    }
+
+    /// 按当前代理配置重建。会丢弃 cookie store（已建立的会话 Cookie 需重新获取）。
+    pub fn rebuild(&self) -> AppResult<()> {
+        let client = build_client()?;
+        *self.0.write().expect("http client poisoned") = client;
+        Ok(())
+    }
 }
 
 /// 执行一次 HTTP 请求
@@ -53,13 +94,8 @@ pub async fn execute(client: &Client, req: HttpRequest) -> AppResult<HttpRespons
             .timeout(timeout)
     } else {
         // follow_redirects=false 时需要用独立 client（reqwest 单请求无法覆盖重定向策略，
-        // 这里用 Policy::none 重新构造一个临时 client）
-        let no_redirect_client = Client::builder()
-            .cookie_store(true)
-            .timeout(timeout)
-            .redirect(Policy::none())
-            .build()
-            .map_err(|e| AppError::Http(e.to_string()))?;
+        // 这里用 Policy::none 临时构造一个，同样走当前代理）
+        let no_redirect_client = build_client_inner(Some(Policy::none()), Some(timeout))?;
         no_redirect_client
             .request(method, final_url.clone())
             .timeout(timeout)
@@ -295,6 +331,11 @@ fn looks_like_text(bytes: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::is_textual;
+    use super::{build_client, execute};
+    use crate::http::model::HttpRequest;
+    use crate::http::proxy::{self, ProxySettings};
+    use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     /// 一段裸 PCM（含空字节）不能被当成文本，否则前端拿不到音频播放器
     fn raw_pcm() -> Vec<u8> {
@@ -334,5 +375,171 @@ mod tests {
         assert!(!is_textual("", &[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]));
         // 空响应体按文本处理
         assert!(is_textual("", b""));
+    }
+
+    // ---- 代理走通性（真实 TCP，不需要外网） ----
+
+    /// 极简 HTTP 代理：记录收到的请求行，直接回一个固定响应（不转发）。
+    /// 返回监听地址与"最近一次请求行"句柄。
+    async fn spawn_fake_proxy() -> (String, Arc<Mutex<Option<String>>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let seen: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let seen_out = seen.clone();
+
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let seen = seen_out.clone();
+                tokio::spawn(async move {
+                    // 读到请求头结束：不足以判定"整个请求到齐"，但足以拿到请求行
+                    let mut buf = vec![0u8; 4096];
+                    let mut head = Vec::new();
+                    loop {
+                        match sock.read(&mut buf).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => {
+                                head.extend_from_slice(&buf[..n]);
+                                if head.windows(4).any(|w| w == b"\r\n\r\n") {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if let Some(line) = head.split(|b| *b == b'\n').next() {
+                        *seen.lock().unwrap() =
+                            Some(String::from_utf8_lossy(line).trim().to_string());
+                    }
+                    let body = "via-proxy";
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                    let _ = sock.shutdown().await;
+                });
+            }
+        });
+
+        (addr, seen)
+    }
+
+    fn req(url: &str) -> HttpRequest {
+        HttpRequest {
+            method: "GET".into(),
+            url: url.into(),
+            params: vec![],
+            headers: vec![],
+            body: None,
+            timeout_ms: Some(10_000),
+            follow_redirects: Some(true),
+        }
+    }
+
+    /// 开启代理后，请求必须以绝对形式打到代理上（而不是直连目标站）。
+    /// 目标用 example.com：真实 DNS 解析由代理解析，这里代理直接应答，
+    /// 因此即使离线也能断言"请求确实经过了代理"。
+    #[tokio::test]
+    async fn request_traverses_configured_proxy() {
+        let _g = proxy::global_lock();
+        let (proxy_addr, seen) = spawn_fake_proxy().await;
+        proxy::set(
+            proxy::normalize(&ProxySettings {
+                enabled: true,
+                url: proxy_addr,
+                bypass: String::new(),
+            })
+            .unwrap(),
+        );
+
+        let client = build_client().unwrap();
+        let resp = execute(&client, req("http://example.com/proxied")).await.unwrap();
+        assert_eq!(resp.status, 200);
+        match resp.body {
+            crate::http::model::ResponseBody::Text { text, .. } => assert_eq!(text, "via-proxy"),
+            other => panic!("期望文本响应，实际 {other:?}"),
+        }
+
+        let line = seen.lock().unwrap().clone().expect("代理没有收到任何请求");
+        assert!(
+            line.starts_with("GET http://example.com/proxied"),
+            "代理应收到绝对形式请求行，实际：{line}"
+        );
+
+        proxy::set(ProxySettings::default());
+    }
+
+    /// 本机地址始终直连：代理开着也不该被代理接管（否则本地 Mock / Ollama 会连不上）
+    #[tokio::test]
+    async fn loopback_stays_direct_even_with_proxy_enabled() {
+        let _g = proxy::global_lock();
+        let origin = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin_addr = origin.local_addr().unwrap();
+        let hits = Arc::new(Mutex::new(0usize));
+        let hits_out = hits.clone();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = origin.accept().await {
+                *hits_out.lock().unwrap() += 1;
+                let mut buf = vec![0u8; 1024];
+                let _ = sock.read(&mut buf).await;
+                let _ = sock
+                    .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    .await;
+                let _ = sock.shutdown().await;
+            }
+        });
+
+        let (proxy_addr, proxy_seen) = spawn_fake_proxy().await;
+        proxy::set(
+            proxy::normalize(&ProxySettings {
+                enabled: true,
+                url: proxy_addr,
+                bypass: String::new(),
+            })
+            .unwrap(),
+        );
+
+        let client = build_client().unwrap();
+        let resp = execute(&client, req(&format!("http://127.0.0.1:{}/local", origin_addr.port())))
+            .await
+            .unwrap();
+        assert_eq!(resp.status, 204);
+        assert_eq!(*hits.lock().unwrap(), 1, "本机目标应被直连");
+        assert!(
+            proxy_seen.lock().unwrap().is_none(),
+            "本机目标不应经过代理"
+        );
+
+        proxy::set(ProxySettings::default());
+    }
+
+    /// 直连名单里的域名不走代理
+    #[tokio::test]
+    async fn bypassed_host_skips_proxy() {
+        let _g = proxy::global_lock();
+        let (proxy_addr, proxy_seen) = spawn_fake_proxy().await;
+        proxy::set(
+            proxy::normalize(&ProxySettings {
+                enabled: true,
+                url: proxy_addr,
+                bypass: "example.com".into(),
+            })
+            .unwrap(),
+        );
+
+        let client = build_client().unwrap();
+        // 绕过代理后要真去连 example.com，联网/断网都不关心，只断言代理没被碰到；
+        // 超时收紧，避免 DNS 卡住拖慢用例
+        let target = HttpRequest {
+            timeout_ms: Some(3_000),
+            ..req("http://example.com/bypassed")
+        };
+        let _ = execute(&client, target).await;
+        assert!(
+            proxy_seen.lock().unwrap().is_none(),
+            "直连名单内的主机不应经过代理"
+        );
+
+        proxy::set(ProxySettings::default());
     }
 }

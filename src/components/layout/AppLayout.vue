@@ -1,13 +1,23 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
-import { FolderTree, Power, Clock, FileText, Keyboard, PlayCircle } from "lucide-vue-next";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import {
+  FolderTree,
+  Power,
+  Clock,
+  FileText,
+  Keyboard,
+  PlayCircle,
+  Settings,
+} from "lucide-vue-next";
 import AppSidebar from "./AppSidebar.vue";
 import AppMain from "./AppMain.vue";
 import TitleBar from "./TitleBar.vue";
 import EnvManager from "@/components/environment/EnvManager.vue";
 import ShortcutHelpModal from "@/components/common/ShortcutHelpModal.vue";
 import CommandPalette from "@/components/common/CommandPalette.vue";
+import ProxySettingsModal from "@/components/common/ProxySettingsModal.vue";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { useSettingsStore } from "@/stores/settings";
 
 type SideTab = "collections" | "history" | "mock" | "docs" | "runner";
 
@@ -20,11 +30,18 @@ const RAIL_TABS: { key: SideTab; label: string; icon: any }[] = [
 ];
 
 const workspaceStore = useWorkspaceStore();
+const settingsStore = useSettingsStore();
 const sideTab = ref<SideTab>("collections");
 const sidebarWidth = ref(260);
 const showEnvManager = ref(false);
 const showShortcuts = ref(false);
 const showPalette = ref(false);
+const showProxySettings = ref(false);
+
+/** 代理开着时在设置图标上留个标记，避免"明明开了代理却以为是直连" */
+const proxyOn = computed(
+  () => settingsStore.proxy.enabled && !!settingsStore.proxy.url.trim()
+);
 
 // Ctrl+P 命令面板
 function onShortcutPalette() {
@@ -34,12 +51,20 @@ onMounted(() => {
   window.addEventListener("shortcut:palette", onShortcutPalette);
   window.addEventListener("open:mock-panel", onOpenMockPanel);
   window.addEventListener("open:env-manager", onOpenEnvManager);
+  window.addEventListener("open:proxy-settings", onOpenProxySettings);
+  settingsStore.load().catch(() => {});
 });
 onBeforeUnmount(() => {
   window.removeEventListener("shortcut:palette", onShortcutPalette);
   window.removeEventListener("open:mock-panel", onOpenMockPanel);
   window.removeEventListener("open:env-manager", onOpenEnvManager);
+  window.removeEventListener("open:proxy-settings", onOpenProxySettings);
 });
+
+// 命令面板「网络代理」入口
+function onOpenProxySettings() {
+  showProxySettings.value = true;
+}
 
 /** 活动栏切换：runner 占据主区，其余（含 mock/docs）保持请求/文档/Mock Tab 视图 */
 function switchTab(t: SideTab) {
@@ -111,9 +136,25 @@ onBeforeUnmount(() => {
           <span v-if="sideTab === t.key" class="rail-indicator" />
         </button>
 
-        <!-- 底部：快捷键帮助 -->
+        <!-- 底部：网络代理 + 快捷键帮助 -->
         <button
-          class="mt-auto w-9 h-9 rounded-lg flex items-center justify-center text-app-muted hover:text-app-text hover:bg-app-hover/60 transition-colors"
+          class="relative mt-auto w-9 h-9 rounded-lg flex items-center justify-center transition-colors"
+          :class="
+            proxyOn
+              ? 'text-accent-green hover:bg-app-hover/60'
+              : 'text-app-muted hover:text-app-text hover:bg-app-hover/60'
+          "
+          :title="proxyOn ? `网络代理：${settingsStore.proxy.url}` : '网络代理设置'"
+          @click="showProxySettings = true"
+        >
+          <Settings :size="17" :stroke-width="1.8" />
+          <span
+            v-if="proxyOn"
+            class="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-accent-green"
+          />
+        </button>
+        <button
+          class="w-9 h-9 rounded-lg flex items-center justify-center text-app-muted hover:text-app-text hover:bg-app-hover/60 transition-colors"
           title="快捷键帮助 (Ctrl+/)"
           @click="showShortcuts = true"
         >
@@ -150,6 +191,8 @@ onBeforeUnmount(() => {
     <EnvManager v-model:show="showEnvManager" />
     <!-- 快捷键帮助 -->
     <ShortcutHelpModal v-model:show="showShortcuts" />
+    <!-- 网络代理 -->
+    <ProxySettingsModal v-model:show="showProxySettings" />
     <!-- 命令面板 Ctrl+P -->
     <CommandPalette v-model:show="showPalette" />
   </div>

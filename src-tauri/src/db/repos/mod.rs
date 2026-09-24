@@ -1,5 +1,6 @@
 pub mod ai_session;
 pub mod ai_setting;
+pub mod app_setting;
 pub mod collection;
 pub mod document;
 pub mod environment;

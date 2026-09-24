@@ -18,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::ai::tools;
 use crate::db::Db;
+use crate::http::engine::HttpClients;
 
 pub struct McpServer {
     pub addr: SocketAddr,
@@ -63,7 +64,7 @@ fn current_token(db: &Arc<Mutex<Db>>) -> String {
 pub async fn start(
     port: u16,
     db: Arc<Mutex<Db>>,
-    http: reqwest::Client,
+    http: HttpClients,
 ) -> Result<McpServer, String> {
     let token = current_token(&db);
     let bind_host = if token.is_empty() { "127.0.0.1" } else { "0.0.0.0" };
@@ -116,7 +117,7 @@ async fn handle_get() -> Response {
 }
 
 async fn handle_post(
-    State((db, http)): State<(Arc<Mutex<Db>>, reqwest::Client)>,
+    State((db, http)): State<(Arc<Mutex<Db>>, HttpClients)>,
     headers: axum::http::HeaderMap,
     Json(rpc): Json<Value>,
 ) -> Response {
@@ -146,7 +147,8 @@ async fn handle_post(
         "initialize" => initialize(&params),
         "ping" => Ok(json!({})),
         "tools/list" => tools_list(),
-        "tools/call" => tools_call(&params, &db, &http).await,
+        // 每次调用取当前客户端：代理设置变更后 MCP 工具也用新代理
+        "tools/call" => tools_call(&params, &db, &http.get()).await,
         "resources/list" => resources_list(&db),
         "resources/templates/list" => resource_templates(),
         "resources/read" => resources_read(&params, &db),

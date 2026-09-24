@@ -30,16 +30,22 @@ pub fn run() {
             let db = Db::open(&db_path).expect("failed to open db");
             db.run_migrations().expect("failed to run migrations");
 
-            // 共享的 HTTP 客户端（带 cookie store）
-            let http_client = http::engine::build_client();
-
             // Mock server / MCP server 运行时状态
             let mock_state = MockState::default();
             let mcp_state = McpState::default();
 
             let shared_db: Arc<Mutex<Db>> = Arc::new(Mutex::new(db));
             app.manage(shared_db.clone());
-            app.manage(http_client.clone());
+
+            // 代理配置要在构造客户端之前装载：所有出站请求都走这一份配置
+            commands::settings::load_proxy_from_db(&shared_db);
+            let http_clients = http::engine::HttpClients::new(
+                http::engine::build_client().expect("failed to build http client"),
+            );
+            // MCP 自动启动需要在 manage 之后仍能拿到句柄，先取一份（内部是 Arc，代价极小）
+            let http_for_mcp = http_clients.clone();
+
+            app.manage(http_clients);
             app.manage(mock_state);
             app.manage(mcp_state);
 
@@ -53,7 +59,7 @@ pub fn run() {
                     let port = s.mcp_port as u16;
                     let app_handle = app.handle().clone();
                     tauri::async_runtime::spawn(async move {
-                        match mcp_server::start(port, shared_db, http_client).await {
+                        match mcp_server::start(port, shared_db, http_for_mcp).await {
                             Ok(server) => {
                                 println!("[mcp] listening on http://{}/mcp", server.addr);
                                 // 登记进 McpState：否则状态查询永远“未运行”，
@@ -73,6 +79,10 @@ pub fn run() {
             // http
             commands::http::send_http_request,
             commands::http::cancel_http_request,
+            // settings（HTTP 代理）
+            commands::settings::get_proxy_settings,
+            commands::settings::save_proxy_settings,
+            commands::settings::test_proxy,
             // io
             commands::io::read_text_file,
             commands::io::write_text_file,

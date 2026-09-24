@@ -13,6 +13,7 @@ use crate::db::repos::ai_setting;
 use crate::db::repos::ai_session::{self, AiSession, AiSessionInput, AiSessionMeta};
 use crate::db::SharedDb;
 use crate::error::{AppError, AppResult};
+use crate::http::engine::HttpClients;
 
 /// 推送给前端的事件（流式增量 / 工具执行 / 完成）
 #[derive(Clone, serde::Serialize)]
@@ -76,8 +77,9 @@ pub fn save_ai_settings(
 #[tauri::command]
 pub async fn test_ai_connection(
     db: State<'_, SharedDb>,
-    http: State<'_, reqwest::Client>,
+    clients: State<'_, HttpClients>,
 ) -> AppResult<String> {
+    let http = clients.get();
     let cfg = {
         let db = db.lock().expect("db mutex poisoned");
         let s = ai_setting::get(&db.conn)?;
@@ -108,12 +110,13 @@ pub async fn test_ai_connection(
 #[tauri::command]
 pub async fn ai_chat(
     db: State<'_, SharedDb>,
-    http: State<'_, reqwest::Client>,
+    clients: State<'_, HttpClients>,
     messages: Vec<ChatMsgIn>,
     context: Option<String>,
     on_event: Channel<AiEvent>,
     request_id: Option<String>,
 ) -> AppResult<Value> {
+    let http = clients.get();
     let cfg = {
         let db = db.lock().expect("db mutex poisoned");
         let s = ai_setting::get(&db.conn)?;

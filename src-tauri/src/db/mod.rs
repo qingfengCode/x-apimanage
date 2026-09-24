@@ -12,7 +12,7 @@ use crate::error::{AppError, AppResult};
 pub type SharedDb = Arc<Mutex<Db>>;
 
 /// 当前 schema 最高版本（新增迁移时同步更新；测试断言引用此常量避免过期）
-pub const LATEST_VERSION: i64 = 8;
+pub const LATEST_VERSION: i64 = 9;
 
 /// 数据库句柄
 pub struct Db {
@@ -99,6 +99,12 @@ impl Db {
             self.conn.execute_batch("PRAGMA user_version = 8")?;
         }
 
+        if version < 9 {
+            // v9：应用级设置表（语句幂等，仍登记版本号）
+            self.conn.execute_batch(schema::MIGRATION_009)?;
+            self.conn.execute_batch("PRAGMA user_version = 9")?;
+        }
+
         Ok(())
     }
 
@@ -126,6 +132,7 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::repos::app_setting;
     use rusqlite::Connection;
 
     /// 与历史 SEED 写入内容完全一致的演示行
@@ -247,6 +254,34 @@ VALUES ('req-real', 'col-demo', '真实请求', 'GET', 'https://api.real.com/x',
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
         assert_eq!(version, LATEST_VERSION);
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    /// v9 的 app_settings 表可读写：新库默认"未启用代理"，保存后按原值读回
+    #[test]
+    fn app_settings_roundtrip_proxy() {
+        let path = temp_db_path("app-settings");
+        let db = Db::open(&path).unwrap();
+        db.run_migrations().unwrap();
+
+        let initial = app_setting::get(&db.conn).unwrap();
+        assert!(!initial.proxy.enabled);
+        assert_eq!(initial.proxy.url, "");
+
+        let saved = crate::http::proxy::ProxySettings {
+            enabled: true,
+            url: "http://127.0.0.1:7890".into(),
+            bypass: ".corp.com".into(),
+        };
+        app_setting::save(
+            &db.conn,
+            &app_setting::AppSettings {
+                proxy: saved.clone(),
+            },
+        )
+        .unwrap();
+        assert_eq!(app_setting::get(&db.conn).unwrap().proxy, saved);
+
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 

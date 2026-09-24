@@ -4,6 +4,7 @@ use tauri::State;
 use crate::db::repos::ai_setting;
 use crate::db::SharedDb;
 use crate::error::{AppError, AppResult};
+use crate::http::engine::HttpClients;
 use crate::mcp_server::{self, McpState};
 
 #[tauri::command]
@@ -16,7 +17,7 @@ pub fn mcp_server_status(state: State<'_, McpState>) -> AppResult<Option<String>
 #[tauri::command]
 pub async fn set_mcp_server(
     db: State<'_, SharedDb>,
-    http: State<'_, reqwest::Client>,
+    clients: State<'_, HttpClients>,
     state: State<'_, McpState>,
     enabled: bool,
     port: Option<u64>,
@@ -63,8 +64,7 @@ pub async fn set_mcp_server(
     };
 
     let db: SharedDb = db.inner().clone();
-    let http = http.inner().clone();
-    let server = mcp_server::start(port_num, db, http)
+    let server = mcp_server::start(port_num, db, clients.inner().clone())
         .await
         .map_err(AppError::Other)?;
 
@@ -78,7 +78,7 @@ pub async fn set_mcp_server(
 #[tauri::command]
 pub async fn generate_mcp_token(
     db: State<'_, SharedDb>,
-    http: State<'_, reqwest::Client>,
+    clients: State<'_, HttpClients>,
     state: State<'_, McpState>,
 ) -> AppResult<String> {
     let token = format!(
@@ -89,7 +89,7 @@ pub async fn generate_mcp_token(
     .chars()
     .take(32)
     .collect::<String>();
-    apply_token(&db, &http, &state, token.clone()).await?;
+    apply_token(&db, &clients, &state, token.clone()).await?;
     Ok(token)
 }
 
@@ -97,16 +97,16 @@ pub async fn generate_mcp_token(
 #[tauri::command]
 pub async fn revoke_mcp_token(
     db: State<'_, SharedDb>,
-    http: State<'_, reqwest::Client>,
+    clients: State<'_, HttpClients>,
     state: State<'_, McpState>,
 ) -> AppResult<()> {
-    apply_token(&db, &http, &state, String::new()).await
+    apply_token(&db, &clients, &state, String::new()).await
 }
 
 /// 落库密钥；服务运行中则重启以应用绑定地址变化
 async fn apply_token(
     db: &State<'_, SharedDb>,
-    http: &State<'_, reqwest::Client>,
+    clients: &State<'_, HttpClients>,
     state: &State<'_, McpState>,
     token: String,
 ) -> AppResult<()> {
@@ -129,7 +129,7 @@ async fn apply_token(
         ai_setting::save(&conn.conn, &s)?;
     }
     if was_running {
-        let (db_clone, http_clone) = (db.inner().clone(), http.inner().clone());
+        let (db_clone, http_clone) = (db.inner().clone(), clients.inner().clone());
         let port = {
             let conn = db.lock().expect("db mutex poisoned");
             ai_setting::get(&conn.conn)?.mcp_port as u16

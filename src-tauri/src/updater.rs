@@ -11,7 +11,7 @@
 //! ```
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -39,28 +39,23 @@ const DOWNLOAD_READ_TIMEOUT: Duration = Duration::from_secs(60);
 const PROGRESS_EMIT_INTERVAL: u64 = 128 * 1024;
 
 /// 清单请求的 HTTP 客户端（rustls，连接池复用；小响应，总超时合理）。
-static HTTP: OnceLock<reqwest::Client> = OnceLock::new();
-fn http() -> &'static reqwest::Client {
-    HTTP.get_or_init(|| {
-        reqwest::Client::builder()
-            .timeout(REQUEST_TIMEOUT)
+/// 代理配置变化时由 [`crate::http::proxy::cached`] 自动重建。
+static HTTP: OnceLock<StdMutex<Option<(u64, reqwest::Client)>>> = OnceLock::new();
+fn http() -> AppResult<reqwest::Client> {
+    crate::http::proxy::cached(&HTTP, |b| {
+        b.timeout(REQUEST_TIMEOUT)
             .user_agent(concat!("x-apimanage/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .expect("构建 reqwest 客户端失败")
     })
 }
 
 /// 安装包下载专用客户端：只设连接超时与读闲置超时，**不设总超时**——
 /// 几十 MB 的安装包在普通网速下下载必然超过 30s，总超时会使更新功能不可用。
-static DOWNLOAD_HTTP: OnceLock<reqwest::Client> = OnceLock::new();
-fn download_http() -> &'static reqwest::Client {
-    DOWNLOAD_HTTP.get_or_init(|| {
-        reqwest::Client::builder()
-            .connect_timeout(REQUEST_TIMEOUT)
+static DOWNLOAD_HTTP: OnceLock<StdMutex<Option<(u64, reqwest::Client)>>> = OnceLock::new();
+fn download_http() -> AppResult<reqwest::Client> {
+    crate::http::proxy::cached(&DOWNLOAD_HTTP, |b| {
+        b.connect_timeout(REQUEST_TIMEOUT)
             .read_timeout(DOWNLOAD_READ_TIMEOUT)
             .user_agent(concat!("x-apimanage/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .expect("构建 reqwest 下载客户端失败")
     })
 }
 
@@ -120,7 +115,7 @@ pub fn is_newer(remote: &str, current: &str) -> bool {
 /// - 返回 `Ok(None)`：清单可达但当前已是最新；
 /// - 返回 `Err`：网络 / 解析失败。
 pub async fn check(manifest_url: &str, current_version: &str) -> AppResult<Option<UpdateManifest>> {
-    let resp = http()
+    let resp = http()?
         .get(manifest_url)
         .send()
         .await
@@ -171,7 +166,7 @@ pub async fn download(
     // 临时文件：下载完整 + 校验通过后再原子改名，避免半成品被当作可用安装包。
     let tmp = dest.with_extension("part");
 
-    let resp = download_http()
+    let resp = download_http()?
         .get(&manifest.url)
         .send()
         .await

@@ -32,6 +32,7 @@
 - ✅ **导入/导出 Postman Collection v2.1**（保留文件夹结构、Body、Headers、脚本）
 - ✅ **Pre/Post 测试脚本**（QuickJS 沙箱，支持 `pm.test` / `pm.expect` / `pm.response` / `pm.environment`）
 - ✅ **Mock 服务**（内置本地 HTTP server，支持路径参数 `:id`、通配 `**`、延迟、状态码、自定义响应头）
+- ✅ **网络代理**：http / https / socks5，支持直连名单，局域网与本机地址始终直连
 - ✅ **易用性打磨**：
   - 复制为 cURL / 复制解析后 URL
   - URL 变量解析实时预览（`{{baseUrl}}` → 实际值）
@@ -71,7 +72,7 @@ x-apimanage/
 │   └── utils/                # id / format / mime
 ├── src-tauri/
 │   ├── src/
-│   │   ├── http/             # engine.rs (reqwest) + model.rs
+│   │   ├── http/             # engine.rs (reqwest) + model.rs + proxy.rs (全局代理)
 │   │   ├── db/               # schema.rs (migration) + repos/
 │   │   ├── commands/         # Tauri invoke 入口
 │   │   └── error.rs
@@ -265,6 +266,24 @@ Content-Type: application/json
    - `xapimanage://documents/{id}` —— 每篇文档（Markdown，随文档列表动态注册）
    - `xapimanage://requests/{id}` —— 请求完整调试配置（URI 模板）
 5. 协议：MCP Streamable HTTP（无状态 JSON-RPC 2.0），支持 tools + resources 能力。
+
+## 网络代理
+
+左侧活动栏底部的 ⚙ 按钮（或 `Ctrl+P` 搜索「网络代理设置」）打开代理配置：
+
+1. 勾选**启用代理**，填代理地址。省略协议时按 `http://` 处理，支持
+   `http://`、`https://`、`socks5://`，可带账号密码（`http://user:pass@host:port`）。
+   Clash / Mihomo 默认 `http://127.0.0.1:7890`，V2rayN 默认 `http://127.0.0.1:10809`。
+2. **直连名单**（可选）：逗号分隔，命中的主机不走代理，支持域名后缀、IP、CIDR 与 `*`，
+   例如 `.corp.com, 192.168.0.0/16`。
+   `localhost` / `127.0.0.1` / `::1` **始终直连**，因此本地 Mock 服务、本地 Ollama
+   不会被代理接管。
+3. **连通性测试**：用当前填写但尚未保存的配置发一次请求，可在保存前确认地址是否正确；
+   关闭代理再测一次可以判断「代理不通」还是「目标站不通」。
+4. 保存后**立即生效**（会重建共享连接，已建立的 Cookie 会话与连接池会重置）。
+
+代理对所有出站请求生效：发送请求、AI 助手、MCP 工具的联网调用、应用自更新。
+未启用代理时保持 reqwest 默认行为（按 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量判断）。
 
 ## 许可证
 

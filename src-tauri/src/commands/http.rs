@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
-use crate::http::engine;
+use crate::http::engine::{self, HttpClients};
 use crate::http::model::{HttpRequest, HttpResponse};
 
 /// 在途 HTTP 请求的取消令牌注册表（key = 前端下发的 requestId）
@@ -26,11 +26,13 @@ impl Drop for HttpCancelGuard {
 
 #[tauri::command]
 pub async fn send_http_request(
-    client: State<'_, reqwest::Client>,
+    clients: State<'_, HttpClients>,
     _db: State<'_, crate::db::SharedDb>,
     req: HttpRequest,
     request_id: Option<String>,
 ) -> AppResult<HttpResponse> {
+    // 取出当前客户端（代理设置变更后是新的实例），后续请求不再读 State
+    let client = clients.get();
     // 不带 requestId 的调用方（旧 Runner 等）不支持终止，行为不变
     let Some(request_id) = request_id else {
         return engine::execute(&client, req).await;

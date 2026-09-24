@@ -179,3 +179,16 @@ INSERT OR IGNORE INTO ai_settings (id) VALUES (1);
 
 ALTER TABLE ai_settings ADD COLUMN mcp_token TEXT NOT NULL DEFAULT '';
 "#;
+
+/// v9 增量迁移：应用级设置表（单行 id=1）。目前只有出站 HTTP 代理，
+/// 语句幂等，随启动执行。
+pub const MIGRATION_009: &str = r#"
+CREATE TABLE IF NOT EXISTS app_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    proxy_enabled INTEGER NOT NULL DEFAULT 0,
+    proxy_url TEXT NOT NULL DEFAULT '',
+    proxy_bypass TEXT NOT NULL DEFAULT ''
+);
+
+INSERT OR IGNORE INTO app_settings (id) VALUES (1);
+"#;

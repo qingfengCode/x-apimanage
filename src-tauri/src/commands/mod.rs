@@ -8,4 +8,5 @@ pub mod io;
 pub mod mcp;
 pub mod mock;
 pub mod request;
+pub mod settings;
 pub mod update;

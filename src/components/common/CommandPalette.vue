@@ -18,6 +18,7 @@ import {
   Plus,
   Upload,
   ChevronRight,
+  Settings,
 } from "lucide-vue-next";
 import { useCollectionStore } from "@/stores/collection";
 import { useDocsStore } from "@/stores/docs";
@@ -26,6 +27,7 @@ import { useTabStore } from "@/stores/tab";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useEnvironmentStore } from "@/stores/environment";
 import { useMockStore } from "@/stores/mock";
+import { useSettingsStore } from "@/stores/settings";
 import type { RequestItem } from "@/types";
 
 /**
@@ -54,6 +56,7 @@ const tabStore = useTabStore();
 const workspaceStore = useWorkspaceStore();
 const envStore = useEnvironmentStore();
 const mockStore = useMockStore();
+const settingsStore = useSettingsStore();
 
 const query = ref("");
 const activeIdx = ref(0);
@@ -113,6 +116,15 @@ const items = computed<PaletteItem[]>(() => {
         if (mockStore.serverUrl) mockStore.stop().catch(() => {});
         else mockStore.start().catch(() => {});
       },
+    },
+    {
+      key: "cmd:proxy",
+      group: "命令",
+      label: "网络代理设置",
+      hint: settingsStore.proxy.enabled ? settingsStore.proxy.url : undefined,
+      icon: Settings,
+      keywords: "proxy http socks 代理 网络",
+      action: () => window.dispatchEvent(new CustomEvent("open:proxy-settings")),
     }
   );
 

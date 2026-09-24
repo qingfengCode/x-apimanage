@@ -32,6 +32,8 @@ reqwest = { version = "0.12", default-features = false, features = [
   "gzip",
   "brotli",
   "deflate",
+  # SOCKS 代理（代理设置里可填 socks5://）
+  "socks",
 ] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util", "fs"] }
 uuid = { version = "1", features = ["v4"] }

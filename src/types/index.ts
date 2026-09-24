@@ -252,6 +252,24 @@ export interface AiSettings {
   mcpToken: string;
 }
 
+// ---- 应用设置 ----
+
+/** 出站 HTTP 代理（应用级：发请求 / AI / MCP 工具 / 自更新共用） */
+export interface ProxySettings {
+  enabled: boolean;
+  /** 代理地址，如 http://127.0.0.1:7890；未写协议按 http 处理，支持 socks5:// */
+  url: string;
+  /** 直连名单（逗号分隔）：支持域名后缀、IP、CIDR 与 *；本机地址始终直连 */
+  bypass: string;
+}
+
+/** 代理连通性测试结果（test_proxy 命令返回） */
+export interface ProxyTestResult {
+  status: number;
+  timeMs: number;
+  url: string;
+}
+
 // ---- 应用自更新 ----
 
 /** 更新清单（自建服务器上的 update.json） */
