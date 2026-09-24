@@ -1,0 +1,53 @@
+[package]
+name = "x-apimanage"
+version = "0.2.0"
+description = "A Postman-like API platform built with Tauri"
+authors = ["you"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "x_apimanage_lib"
+# 仅桌面端：lib 作为 rlib 被 bin (main.rs) 链接即可。
+# 移动端 (cdylib/staticlib) 在 Windows + bundled SQLite 下会因 cc 抓到 MinGW gcc
+# 产生 __chkstk_ms 符号而链接失败；桌面 exe 不需要它们。
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-process = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "cookies",
+  "json",
+  "stream",
+  "multipart",
+  "gzip",
+  "brotli",
+  "deflate",
+] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util", "fs"] }
+uuid = { version = "1", features = ["v4"] }
+# Mock server
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", default-features = false }
+tokio-util = "0.7"
+sha2 = "0.10"
+futures-util = "0.3"
+socket2 = "0.5"
+chrono = "0.4"
+base64 = "0.22"
+mime = "0.3"
+thiserror = "2"
+log = "0.4"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

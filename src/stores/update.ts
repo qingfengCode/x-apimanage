@@ -1,0 +1,157 @@
+import { defineStore } from "pinia";
+import { ref } from "vue";
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UpdateInfo, UpdateManifest, UpdateProgressEvent } from "@/types";
+
+/**
+ * 应用自更新状态机（移植自 X-Term）。
+ *
+ * 状态流转：
+ *   idle ──check──> checking ──> up-to-date | update-available
+ *   update-available ──download──> downloading ──> downloaded ──install──> (退出)
+ *   任意环节出错 ──> error
+ *
+ * 下载进度由后端 update:progress 事件推送，本 store 在下载期间订阅并写入 progress。
+ */
+export type UpdateStatus =
+  | "idle"
+  | "checking"
+  | "up-to-date"
+  | "update-available"
+  | "downloading"
+  | "downloaded"
+  | "error";
+
+const SKIP_KEY = "xapimanage.update.skippedVersion";
+
+export const useUpdateStore = defineStore("update", () => {
+  const status = ref<UpdateStatus>("idle");
+  const info = ref<UpdateInfo | null>(null);
+  /** 可用的新版本清单（status=update-available / downloading / downloaded 时有效）。 */
+  const manifest = ref<UpdateManifest | null>(null);
+  const progress = ref<UpdateProgressEvent>({ received: 0, total: 0, percent: 0 });
+  const error = ref<string | null>(null);
+  const downloadedPath = ref<string | null>(null);
+  /** 用户选择跳过的版本（localStorage 持久化）。 */
+  const skippedVersion = ref<string>(localStorage.getItem(SKIP_KEY) ?? "");
+
+  let unlisten: UnlistenFn | null = null;
+  /** 下载防重入：并发调用 download 时第二次会覆盖 unlisten 变量，首次订阅永远无法解除。 */
+  let downloading = false;
+
+  function fail(msg: string) {
+    status.value = "error";
+    error.value = msg;
+  }
+
+  /** 拉取应用信息（当前版本 / 更新源），供更新弹窗展示。 */
+  async function loadInfo() {
+    try {
+      info.value = await invoke<UpdateInfo>("update_get_info");
+    } catch (e) {
+      error.value = String(e);
+    }
+  }
+
+  /** 保存更新源地址并刷新 info。 */
+  async function saveManifestUrl(url: string) {
+    await invoke("update_set_manifest_url", { url });
+    if (info.value) info.value.manifestUrl = url;
+  }
+
+  /**
+   * 检查更新。
+   * @param includeSkipped 为 false 时忽略"跳过此版本"（启动静默检查时用）。
+   */
+  async function check(includeSkipped = true) {
+    status.value = "checking";
+    error.value = null;
+    try {
+      const m = await invoke<UpdateManifest | null>("update_check");
+      if (m && (includeSkipped || m.version !== skippedVersion.value)) {
+        manifest.value = m;
+        status.value = "update-available";
+      } else {
+        manifest.value = null;
+        status.value = "up-to-date";
+      }
+    } catch (e) {
+      fail(String(e));
+    }
+  }
+
+  /** 下载当前 manifest 对应的安装包，并订阅进度事件。 */
+  async function download() {
+    const m = manifest.value;
+    if (!m) return;
+    if (downloading) return; // 防重入：已在下载中，忽略重复调用
+    downloading = true;
+    status.value = "downloading";
+    error.value = null;
+    progress.value = { received: 0, total: 0, percent: 0 };
+    try {
+      // 订阅进度（下载结束后解绑）。listen 失败也要有兜底：
+      // 状态已是 downloading，listen 抛错不能产生未处理拒绝。
+      try {
+        unlisten = await listen<UpdateProgressEvent>("update:progress", (e) => {
+          progress.value = e.payload;
+        });
+      } catch (e) {
+        console.warn("更新进度事件订阅失败:", e);
+      }
+      downloadedPath.value = await invoke<string>("update_download", { manifest: m });
+      status.value = "downloaded";
+    } catch (e) {
+      fail(String(e));
+    } finally {
+      if (unlisten) {
+        unlisten();
+        unlisten = null;
+      }
+      downloading = false;
+    }
+  }
+
+  /** 安装已下载的安装包并退出应用。 */
+  async function install() {
+    if (!downloadedPath.value) return;
+    try {
+      await invoke("update_install_and_exit", { path: downloadedPath.value });
+    } catch (e) {
+      fail(String(e));
+    }
+  }
+
+  /** 跳过当前版本（下次启动静默检查不再提示，手动点检查仍会提示）。 */
+  function skip() {
+    if (manifest.value) {
+      skippedVersion.value = manifest.value.version;
+      localStorage.setItem(SKIP_KEY, manifest.value.version);
+    }
+    status.value = "idle";
+  }
+
+  /** 回到空闲态（关闭弹窗 / 重试前）。 */
+  function reset() {
+    status.value = "idle";
+    error.value = null;
+  }
+
+  return {
+    status,
+    info,
+    manifest,
+    progress,
+    error,
+    downloadedPath,
+    skippedVersion,
+    loadInfo,
+    saveManifestUrl,
+    check,
+    download,
+    install,
+    skip,
+    reset,
+  };
+});

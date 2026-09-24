@@ -1,0 +1,62 @@
+# ---------- 依赖 ----------
+node_modules/
+.pnp
+.pnp.js
+
+# ---------- 构建产物 ----------
+dist/
+dist-ssr/
+# Rust / Tauri 编译产物
+/src-tauri/target/
+# Tauri 自动生成的 ACL schema
+/src-tauri/gen/schemas/
+
+# ---------- 日志 ----------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ---------- 本地临时 / 草稿 ----------
+.tmp-test/
+.tmp/
+tmp/
+temp/
+
+# ---------- 工具与编辑器状态 ----------
+.zcode/
+
+# ---------- 测试覆盖率 ----------
+coverage/
+*.lcov
+
+# ---------- 环境变量与密钥 ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ---------- 本地数据库 / 运行时数据 ----------
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# ---------- 编辑器 / 操作系统 ----------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Rust ----------
+**/*.rs.bk

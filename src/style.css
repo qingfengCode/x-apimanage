@@ -1,0 +1,224 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * 现代深蓝调暗色主题，三层深度营造层次：
+ *   chrome（侧栏/Tab 条，最深）→ 内容区（居中）→ 浮起元素（输入框/卡片/菜单，最浅）
+ * 色值以 RGB 三通道定义，Tailwind 通过 `rgb(var(--x) / <alpha>)` 引用，
+ * 透明度修饰符（/40 等）继续可用；做浅色主题只需覆盖这些变量。
+ */
+:root {
+  color-scheme: dark;
+
+  --app-bg: 18 20 26; /* #12141a 内容区背景 */
+  --app-surface: 13 15 19; /* #0d0f13 侧栏 / Tab 条等外围 chrome */
+  --app-surface2: 26 29 36; /* #1a1d24 输入框 / 卡片 / 菜单（浮起层） */
+  --app-border: 36 40 49; /* #242831 边框 */
+  --app-hover: 32 36 44; /* #20242c hover */
+  --app-active: 9 71 113; /* #094771 选中 */
+  --app-text: 226 229 236; /* #e2e5ec 主文本 */
+  --app-muted: 138 142 153; /* #8a8e99 次要文本 */
+
+  --accent-orange: 255 108 55; /* #ff6c37 Postman 橙 */
+  --accent-orange-hover: 255 125 75; /* 发送按钮 hover */
+  --accent-blue: 61 138 255; /* #3d8aff */
+  --accent-green: 52 211 153; /* #34d399 */
+  --accent-red: 248 90 90; /* #f85a5a */
+  --accent-yellow: 227 179 66; /* #e3b342 */
+  --accent-purple: 188 140 255; /* #bc8cff PATCH/杂项 */
+
+  --scrollbar-thumb: 46 50 59; /* #2e323b */
+  --scrollbar-thumb-hover: 62 67 77; /* #3e434d */
+
+  /* 浮层（菜单/弹窗/下拉）统一 elevation，带一点点主题色染色 */
+  --shadow-pop: 0 4px 6px -2px rgb(0 0 0 / 0.4), 0 12px 28px -4px rgb(0 0 0 / 0.55),
+    0 0 0 1px rgb(0 0 0 / 0.25);
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background-color: rgb(var(--app-bg));
+  color: rgb(var(--app-text));
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12.5px;
+  line-height: 1.45;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 数字列（耗时/大小/状态码等）等宽对齐，避免刷新时跳动 */
+.tabular-nums,
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: rgb(var(--accent-blue) / 0.35);
+}
+
+/* 允许文本输入和编辑区域选择 */
+input,
+textarea,
+.monaco-editor,
+[contenteditable] {
+  user-select: text;
+}
+
+/* 滚动条样式：细窄、悬浮感 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--scrollbar-thumb));
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--scrollbar-thumb-hover));
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--scrollbar-thumb)) transparent;
+}
+
+/* Tailwind 通用组件样式 */
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1 px-2.5 h-7 text-xs rounded-md transition-colors
+      disabled:opacity-50 disabled:cursor-not-allowed active:brightness-90 select-none;
+  }
+  .btn-primary {
+    @apply btn bg-accent-orange text-white hover:bg-accent-orange-hover;
+  }
+  .btn-ghost {
+    @apply btn text-app-muted hover:text-app-text hover:bg-app-hover;
+  }
+  .btn-danger {
+    @apply btn text-accent-red hover:bg-accent-red/10;
+  }
+  .btn-sm {
+    @apply px-2 h-6 text-[11px];
+  }
+  /* 方形图标按钮（TabBar 关闭、表格行内操作等） */
+  .icon-btn {
+    @apply inline-flex items-center justify-center w-6 h-6 rounded-md text-app-muted hover:text-app-text
+      hover:bg-app-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0;
+  }
+
+  .input {
+    @apply bg-app-surface2 text-app-text border border-app-border rounded-md h-7 px-2 text-xs
+      outline-none focus:border-accent-blue/70 transition-colors placeholder:text-app-muted/60;
+  }
+
+  .panel {
+    @apply bg-app-surface border border-app-border;
+  }
+
+  /* 侧栏面板统一标题栏（Collections/History/Mock/Docs 头部） */
+  .panel-header {
+    @apply flex items-center gap-1 h-8 px-2.5 border-b border-app-border flex-shrink-0;
+  }
+  .panel-title {
+    @apply text-[11px] uppercase tracking-[0.08em] text-app-muted font-semibold select-none;
+  }
+
+  /* 分段切换（Pretty/Raw、Body/Headers、body 类型等），统一激活表达 */
+  .seg {
+    @apply inline-flex items-center gap-1 px-2 h-6 rounded-md text-[11px]
+      text-app-muted hover:bg-app-hover hover:text-app-text transition-colors cursor-pointer select-none;
+  }
+  .seg-active {
+    @apply bg-app-surface2 text-app-text shadow-[inset_0_0_0_1px_rgb(var(--app-border))];
+  }
+}
+
+/* 浮层统一阴影 + 圆角（菜单 / 下拉 / 弹窗） */
+.pop {
+  background: rgb(var(--app-surface2));
+  border: 1px solid rgb(var(--app-border));
+  border-radius: 8px;
+  box-shadow: var(--shadow-pop);
+}
+
+/*
+ * 全局键盘焦点可见性：覆盖按钮、链接、select、复选框等所有交互元素。
+ * 文本输入框通过 .input 等的 focus:border 变化表达焦点，不在此列。
+ * 放在 @layer 之外以获得更高优先级。
+ */
+:where(button, a, [role="button"], select, input[type="checkbox"], input[type="radio"], summary):focus-visible {
+  outline: 1px solid rgb(var(--accent-blue));
+  outline-offset: -1px;
+}
+
+/* 右键菜单弹出动画 */
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.menu-enter {
+  animation: menu-in 110ms ease-out;
+  transform-origin: top left;
+}
+
+/* Tab 拖拽落点指示器：inset box-shadow 不占用布局，避免 tab 内容抖动 */
+.tab-drop-indicator {
+  box-shadow: inset 2px 0 0 0 rgb(var(--accent-orange));
+}
+
+/* 键值表格行拖拽落点指示（目标行上沿） */
+.drag-over-top {
+  box-shadow: inset 0 2px 0 0 rgb(var(--accent-blue));
+}
+
+/* 集合树当前打开请求的选中态（橙色左条 + 背景，同样不挤占布局） */
+.tree-item-active {
+  background-color: rgb(var(--app-hover));
+  box-shadow: inset 2px 0 0 0 rgb(var(--accent-orange));
+}
+
+/* 活动栏（左侧图标栏）当前项的左侧指示条 */
+.rail-indicator {
+  position: absolute;
+  left: -6px;
+  top: 20%;
+  bottom: 20%;
+  width: 2px;
+  border-radius: 2px;
+  background: rgb(var(--accent-orange));
+}
+
+/* Send 按钮的橙色微光 */
+.send-glow {
+  box-shadow: 0 1px 10px rgb(var(--accent-orange) / 0.35);
+}
+.send-glow:hover {
+  box-shadow: 0 2px 16px rgb(var(--accent-orange) / 0.5);
+}
+
+/* 复选框统一强调色与指针 */
+input[type="checkbox"] {
+  accent-color: rgb(var(--accent-orange));
+  cursor: pointer;
+}
