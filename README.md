@@ -1,6 +1,6 @@
 # x-apimanage
 
-一个基于 **Tauri 2 + Vue 3** 的本地优先（local-first）API 调试平台，类似 Postman。
+一个基于 **Rust + Vue 3** 的本地优先（local-first）API 调试平台，类似 Postman。
 
 ## 界面预览
 
